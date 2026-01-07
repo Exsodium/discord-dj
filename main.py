@@ -4,7 +4,8 @@ from discord import Intents, Interaction, app_commands, FFmpegOpusAudio
 from discord.ext import commands
 import logging
 from yt_dlp import YoutubeDL
-from asyncio import get_running_loop
+from asyncio import get_running_loop, run_coroutine_threadsafe, create_task
+from collections import deque
 
 load_dotenv()
 TOKEN = getenv('TOKEN')
@@ -42,21 +43,21 @@ def main() -> None:
 
     intents = Intents.default()
     intents.message_content = True
-
     bot = commands.Bot(command_prefix='.', intents=intents)
+    queue = deque()
 
     @bot.event
     async def on_ready() -> None:
         await bot.tree.sync()
-        logger.info(f'{bot.user} is online!')
+        logger.info(f'Бот {bot.user.name} запущен!')
 
     @bot.tree.command(name='play', description='Включить трек/добавить трек в очередь')
     @app_commands.describe(song_query='Название трека/ссылка на трек')
-    async def play(interaction: Interaction, song_query: str) -> None:
+    async def play_track(interaction: Interaction, song_query: str) -> None:
         await interaction.response.defer()
 
         if interaction.user.voice is None:
-            await interaction.followup.send('Вы не находитесь в голосовом канале!')
+            await interaction.followup.send('Вы должны быть в голосовом канале!')
             return
 
         voice_channel = interaction.user.voice.channel
@@ -69,18 +70,84 @@ def main() -> None:
 
         query = f'ytsearch1:{song_query}'
         results = await search_ytdlp_async(query, YDL_OPTIONS)
-        tracks = results.get('entries', [])
+        entries = results.get('entries', None)
 
-        if tracks is None:
-            await interaction.followup.send('Треки не найдены!')
+        if entries is None:
+            await interaction.followup.send('Трек не найден!')
             return
 
-        track = tracks[0]
+        track: dict = entries[0]
         url = track['url']
-        title = track.get('title', 'Без названия')
-        source = FFmpegOpusAudio(
-            url, **FFMPEG_OPTIONS, executable=r'ffmpeg/ffmpeg.exe')
-        voice_client.play(source)
+        title = track['title']
+        queue.append((url, title))
+
+        if voice_client.is_playing() or voice_client.is_paused():
+            await interaction.followup.send(f'Добавлено в очередь: **{title}**')
+        else:
+            await play_next_track(voice_client, interaction.channel)
+
+    async def play_next_track(voice_client, channel) -> None:
+        if queue:
+            url, title = queue[0]
+            source = FFmpegOpusAudio(
+                source=url,
+                **FFMPEG_OPTIONS,
+                executable=r'ffmpeg/ffmpeg.exe'
+            )
+
+            def after_play(error):
+                queue.popleft()
+
+                if error:
+                    print(f'Ошибка воспроизведения {title}: {error}')
+                run_coroutine_threadsafe(play_next_track(
+                    voice_client, channel), bot.loop)
+
+            voice_client.play(source, after=after_play)
+            create_task(channel.send(f'Сейчас играет: **{title}**'))
+        else:
+            await voice_client.disconnect()
+
+    @bot.tree.command(name='skip', description='Пропустить трек')
+    async def skip_track(interaction: Interaction) -> None:
+        voice_client = interaction.guild.voice_client
+
+        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+            current_track_title = queue[0][1]
+            voice_client.stop()
+            await interaction.response.send_message(f'Пропущено: {current_track_title}')
+        else:
+            await interaction.response.send_message('Ничего не играет!')
+
+    @bot.tree.command(name='pause', description='Поставить трек на паузу')
+    async def pause_track(interaction: Interaction) -> None:
+        voice_client = interaction.guild.voice_client
+
+        if voice_client and voice_client.is_playing():
+            current_track_title = queue[0][1]
+            voice_client.pause()
+            await interaction.response.send_message(f'Трек {current_track_title} поставлен на паузу')
+
+    @bot.tree.command(name='resume', description='Снять паузу с трека')
+    async def resume_track(interaction: Interaction) -> None:
+        voice_client = interaction.guild.voice_client
+
+        if voice_client and voice_client.is_paused():
+            current_track_title = queue[0][1]
+            voice_client.resume()
+            await interaction.response.send_message(f'Трек {current_track_title} снят с паузы')
+
+    @bot.tree.command(name='queue', description='Показать очередь')
+    async def show_queue(interaction: Interaction) -> None:
+        voice_client = interaction.guild.voice_client
+
+        if voice_client:
+            queue_content = str()
+
+            for number, title in enumerate(queue, 1):
+                queue_content += f'{number}. {title}\n'
+
+            await interaction.response.send_message(queue_content)
 
     bot.run(TOKEN)
 
