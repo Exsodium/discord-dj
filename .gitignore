@@ -3,6 +3,13 @@ __pycache__/
 
 # Environments
 venv/
+.env
 
 # VS Code files
 .vscode/
+
+# FFMPEG binaries
+ffmpeg/
+
+# Logs
+*.log
