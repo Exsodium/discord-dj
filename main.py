@@ -57,7 +57,7 @@ def main() -> None:
         await interaction.response.defer()
 
         if interaction.user.voice is None:
-            await interaction.followup.send('Вы должны быть в голосовом канале!')
+            await interaction.followup.send('**Вы должны быть в голосовом канале!**')
             return
 
         voice_channel = interaction.user.voice.channel
@@ -68,11 +68,14 @@ def main() -> None:
         else:
             await voice_client.move_to(voice_channel)
 
+        if '&' in song_query:
+            song_query = song_query.split('&')[0]
+
         query = f'ytsearch1:{song_query}'
         results = await search_ytdlp_async(query, YDL_OPTIONS)
-        entries = results.get('entries', None)
+        entries = results.get('entries', [])
 
-        if entries is None:
+        if not entries:
             await interaction.followup.send('Трек не найден!')
             return
 
@@ -115,7 +118,7 @@ def main() -> None:
         if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
             current_track_title = queue[0][1]
             voice_client.stop()
-            await interaction.response.send_message(f'Пропущено: {current_track_title}')
+            await interaction.response.send_message(f'Пропущено: **{current_track_title}**')
         else:
             await interaction.response.send_message('Ничего не играет!')
 
@@ -144,8 +147,8 @@ def main() -> None:
         if voice_client:
             queue_content = str()
 
-            for number, title in enumerate(queue, 1):
-                queue_content += f'{number}. {title}\n'
+            for number, track in enumerate(queue, 1):
+                queue_content += f'{number}. **{track[1]}**\n'
 
             await interaction.response.send_message(queue_content)
 
