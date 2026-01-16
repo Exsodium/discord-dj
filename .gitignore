@@ -13,3 +13,6 @@ ffmpeg/
 
 # Logs
 *.log
+
+# Voice messages
+voices/
