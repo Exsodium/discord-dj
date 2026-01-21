@@ -121,8 +121,6 @@ def main() -> None:
                 channel.send(
                     f'Сейчас играет: **{current_track_data['title']}**')
             )
-        else:
-            await voice_client.disconnect()
 
     @bot.tree.command(name='skip', description='Пропустить трек')
     async def skip_track(interaction: Interaction) -> None:
